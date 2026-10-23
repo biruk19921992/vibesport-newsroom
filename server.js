@@ -112,7 +112,10 @@ async function publishNewsToWebsite(items) {
       });
 
       if (!response.ok) {
-        console.error(`Website publish failed (${response.status}) for: ${item.title}`);
+        const errorDetails = (await response.text()).slice(0, 500);
+        console.error(
+          `Website publish failed (${response.status}) for: ${item.title}. Response: ${errorDetails}`
+        );
       } else {
         const result = await response.json().catch(() => ({}));
         console.log(`Website publish ${result.created ? "created" : result.updated ? "updated" : "accepted"}: ${item.title}`);
