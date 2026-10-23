@@ -30,6 +30,19 @@
       <p class="muted">ዜናን ሰብስብ፣ ተርጉም፣ አስተካክል እና ከፈቀድክ በኋላ አትም።</p>
     </section>
 
+    <section class="panel p-5">
+      <h2 class="font-bold text-lg mb-2">🔐 የAdmin ደህንነት ቁልፍ</h2>
+      <p class="muted text-sm mb-3">Token በRender Environment Variables ውስጥ ካስቀመጥከው በኋላ እዚህ አስገባ።</p>
+      <div class="flex flex-col sm:flex-row gap-2">
+        <input id="adminTokenInput" type="password" autocomplete="off"
+          placeholder="NEWSROOM_ADMIN_TOKEN"
+          class="flex-1 rounded-lg bg-slate-900 border border-slate-700 p-3 text-sm">
+        <button id="saveAdminToken" class="btn" type="button">Token አስቀምጥ</button>
+        <button id="clearAdminToken" class="btn" type="button">አጥፋ</button>
+      </div>
+      <p id="adminTokenStatus" class="muted text-sm mt-2">Token አልተጫነም።</p>
+    </section>
+
     <section class="grid grid-cols-2 md:grid-cols-4 gap-3">
       <div class="panel p-4"><div class="muted text-sm">የተሰበሰቡ ዜናዎች</div><div id="collected" class="text-3xl font-bold mt-2">0</div></div>
       <div class="panel p-4"><div class="muted text-sm">የተተረጎሙ</div><div id="translated" class="text-3xl font-bold mt-2">0</div></div>
@@ -73,7 +86,28 @@
     </section>
   </main>
 
+
   <script>
+    const adminTokenInput = document.getElementById("adminTokenInput");
+    const adminTokenStatus = document.getElementById("adminTokenStatus");
+
+    document.getElementById("saveAdminToken").addEventListener("click", () => {
+      const token = adminTokenInput.value.trim();
+      if (!token) {
+        adminTokenStatus.textContent = "እባክህ Token አስገባ።";
+        return;
+      }
+      sessionStorage.setItem("newsroomAdminToken", token);
+      adminTokenInput.value = "";
+      adminTokenStatus.textContent = "Token በዚህ Browser Session ተቀምጧል።";
+    });
+
+    document.getElementById("clearAdminToken").addEventListener("click", () => {
+      sessionStorage.removeItem("newsroomAdminToken");
+      adminTokenInput.value = "";
+      adminTokenStatus.textContent = "Token ተሰርዟል።";
+    });
+
     async function checkServer() {
       const status = document.getElementById("serverStatus");
       const message = document.getElementById("healthMessage");
@@ -186,12 +220,32 @@
           translateButton.textContent = "ወደ አማርኛ ተርጉም";
 
           const translation = document.createElement("div");
-          translation.className = "mt-3 space-y-2";
+          translation.className = "mt-3 space-y-3";
           translation.hidden = true;
+
+          const titleInput = document.createElement("textarea");
+          titleInput.className = "w-full rounded-lg bg-slate-900 border border-slate-700 p-3 text-sm";
+          titleInput.rows = 2;
+          titleInput.placeholder = "የአማርኛ ርዕስ";
+
+          const descriptionInput = document.createElement("textarea");
+          descriptionInput.className = "w-full rounded-lg bg-slate-900 border border-slate-700 p-3 text-sm";
+          descriptionInput.rows = 5;
+          descriptionInput.placeholder = "የአማርኛ የዜና ዝርዝር";
+
+          const publishButton = document.createElement("button");
+          publishButton.className = "btn mt-2";
+          publishButton.textContent = "ወደ VibeSport አትም";
+          publishButton.hidden = true;
+
+          const publishStatus = document.createElement("p");
+          publishStatus.className = "text-sm";
 
           translateButton.addEventListener("click", async () => {
             translateButton.disabled = true;
             translateButton.textContent = "እየተተረጎመ ነው...";
+            publishButton.hidden = true;
+            publishStatus.textContent = "";
 
             try {
               const result = await fetch("/api/news/translate", {
@@ -205,29 +259,76 @@
 
               const translated = await result.json();
 
-              if (!result.ok || !translated.ok) {
+              if (!result.ok || !translated.ok || !String(translated.titleAm || "").trim()) {
                 throw new Error(translated.error || "ትርጉሙ አልተሳካም");
               }
 
-              translation.replaceChildren();
+              const originalDescription = item.description || item.contentSnippet || "";
+              if (originalDescription.trim() && !String(translated.descriptionAm || "").trim()) {
+                throw new Error("የዜናው ዝርዝር አልተተረጎመም። እንደገና ሞክር።");
+              }
 
-              const titleAm = document.createElement("h4");
-              titleAm.className = "font-semibold text-emerald-300";
-              titleAm.textContent = translated.titleAm;
-
-              const descriptionAm = document.createElement("p");
-              descriptionAm.className = "text-sm";
-              descriptionAm.textContent = translated.descriptionAm;
-
-              translation.append(titleAm, descriptionAm);
+              titleInput.value = translated.titleAm;
+              descriptionInput.value = translated.descriptionAm || "";
+              translation.replaceChildren(
+                titleInput,
+                descriptionInput,
+                publishButton,
+                publishStatus
+              );
               translation.hidden = false;
-              translateButton.textContent = "ትርጉሙን አሳይ";
+              publishButton.hidden = false;
+              translateButton.textContent = "እንደገና ተርጉም";
             } catch (error) {
-              translation.textContent = "ትርጉሙ አልተሳካም። እንደገና ሞክር።";
+              publishStatus.textContent = error.message || "ትርጉሙ አልተሳካም። እንደገና ሞክር።";
               translation.hidden = false;
               translateButton.textContent = "እንደገና ተርጉም";
             } finally {
               translateButton.disabled = false;
+            }
+          });
+
+          publishButton.addEventListener("click", async () => {
+            const token = sessionStorage.getItem("newsroomAdminToken") || "";
+            if (!token) {
+              publishStatus.textContent = "መጀመሪያ የAdmin Token አስገባ።";
+              return;
+            }
+
+            publishButton.disabled = true;
+            publishButton.textContent = "እየታተመ ነው...";
+            publishStatus.textContent = "";
+
+            try {
+              const result = await fetch("/api/news/publish", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": "Bearer " + token
+                },
+                body: JSON.stringify({
+                  titleAm: titleInput.value.trim(),
+                  descriptionAm: descriptionInput.value.trim(),
+                  originalTitle: item.title || "",
+                  originalDescription: item.description || item.contentSnippet || "",
+                  link: item.link || "",
+                  imageUrl: item.imageUrl || item.enclosure?.url || "",
+                  category: item.category || "international"
+                })
+              });
+
+              const data = await result.json();
+              if (!result.ok || !data.ok) {
+                throw new Error(data.error || "ዜናውን ማተም አልተሳካም");
+              }
+
+              publishStatus.textContent = "በተሳካ ሁኔታ ታትሟል።";
+              publishButton.textContent = "ታትሟል ✓";
+            } catch (error) {
+              publishStatus.textContent = error.message || "ማተም አልተሳካም።";
+              publishButton.textContent = "እንደገና አትም";
+            } finally {
+              publishButton.disabled = false;
             }
           });
 

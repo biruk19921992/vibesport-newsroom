@@ -174,7 +174,7 @@ async function refreshNewsCache() {
     if (freshNews.length > 0 || newsCache.length === 0) {
       newsCache = freshNews;
       newsCacheUpdatedAt = new Date().toISOString();
-      await publishNewsToWebsite(freshNews);
+      // Publishing is disabled here: news must be translated and approved first.
     }
 
     console.log(
@@ -376,6 +376,114 @@ try {
     return res.status(503).json({
       ok: false,
       error: "ትርጉሙ አልተሳካም። እባክህ በኋላ እንደገና ሞክር።"
+    });
+  }
+});
+
+
+function requireNewsroomAdmin(req, res, next) {
+  const expected = process.env.NEWSROOM_ADMIN_TOKEN;
+  const supplied = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+
+  if (!expected) {
+    return res.status(503).json({
+      ok: false,
+      error: "Newsroom admin token is not configured"
+    });
+  }
+
+  const crypto = require("crypto");
+  const a = Buffer.from(supplied);
+  const b = Buffer.from(expected);
+
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(401).json({ ok: false, error: "Unauthorized" });
+  }
+
+  next();
+}
+
+app.post("/api/news/publish", requireNewsroomAdmin, async (req, res) => {
+  const titleAm = String(req.body?.titleAm || "").trim();
+  const descriptionAm = String(req.body?.descriptionAm || "").trim();
+  const originalTitle = String(req.body?.originalTitle || "").trim();
+  const originalDescription = String(req.body?.originalDescription || "").trim();
+  const link = String(req.body?.link || "").trim();
+  const imageUrl = String(req.body?.imageUrl || "").trim();
+  const category = String(req.body?.category || "international").trim();
+
+  if (!titleAm || !link || !/^https?:\/\//i.test(link)) {
+    return res.status(400).json({
+      ok: false,
+      error: "Amharic title and valid original news URL are required"
+    });
+  }
+
+  if (!/[ሀ-ፚ]/.test(titleAm)) {
+    return res.status(400).json({
+      ok: false,
+      error: "Title must contain Amharic text"
+    });
+  }
+
+  if (originalDescription && !descriptionAm) {
+    return res.status(400).json({
+      ok: false,
+      error: "Translate the description before publishing"
+    });
+  }
+
+  const endpoint = process.env.WEBSITE_WEBHOOK_URL;
+  const secret = process.env.NEWS_DESK_WEBHOOK_SECRET;
+
+  if (!endpoint || !secret) {
+    return res.status(503).json({
+      ok: false,
+      error: "Website publishing is not configured"
+    });
+  }
+
+  const externalId = require("crypto")
+    .createHash("sha256")
+    .update(link)
+    .digest("hex");
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-newsdesk-secret": secret
+      },
+      body: JSON.stringify({
+        externalId,
+        title: titleAm,
+        description: descriptionAm,
+        imageUrl: /^https?:\/\//i.test(imageUrl) ? imageUrl : "",
+        originalUrl: link,
+        category
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      console.error("Website publish failed:", response.status, responseText.slice(0, 300));
+      return res.status(502).json({
+        ok: false,
+        error: "VibeSport rejected the publish request",
+        websiteStatus: response.status
+      });
+    }
+
+    console.log("Amharic news published:", titleAm);
+    return res.json({ ok: true, message: "News published to VibeSport" });
+  } catch (error) {
+    console.error("Website publish request failed:", error.message);
+    return res.status(502).json({
+      ok: false,
+      error: "Could not connect to VibeSport"
     });
   }
 });
