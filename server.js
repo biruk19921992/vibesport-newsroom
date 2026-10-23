@@ -76,6 +76,53 @@ async function fetchArticleImage(url) {
   return "";
 }
 
+async function publishNewsToWebsite(items) {
+  const endpoint = process.env.WEBSITE_WEBHOOK_URL;
+  const secret = process.env.NEWS_DESK_WEBHOOK_SECRET;
+
+  if (!endpoint || !secret) {
+    console.log("Website publishing skipped: webhook environment variables are missing.");
+    return;
+  }
+
+  for (const item of items) {
+    if (!item.title || !item.link || !/^https?:\/\//i.test(item.link)) continue;
+
+    const externalId = require("crypto")
+      .createHash("sha256")
+      .update(item.link.trim())
+      .digest("hex");
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-newsdesk-secret": secret
+        },
+        body: JSON.stringify({
+          externalId,
+          title: item.title,
+          description: item.description || "",
+          imageUrl: item.imageUrl || "",
+          originalUrl: item.link,
+          category: item.category || "international"
+        }),
+        signal: AbortSignal.timeout(15000)
+      });
+
+      if (!response.ok) {
+        console.error(`Website publish failed (${response.status}) for: ${item.title}`);
+      } else {
+        const result = await response.json().catch(() => ({}));
+        console.log(`Website publish ${result.created ? "created" : result.updated ? "updated" : "accepted"}: ${item.title}`);
+      }
+    } catch (error) {
+      console.error("Website publish request failed:", error.message);
+    }
+  }
+}
+
 async function refreshNewsCache() {
   if (newsCacheRefreshing) return;
   newsCacheRefreshing = true;
@@ -124,6 +171,7 @@ async function refreshNewsCache() {
     if (freshNews.length > 0 || newsCache.length === 0) {
       newsCache = freshNews;
       newsCacheUpdatedAt = new Date().toISOString();
+      await publishNewsToWebsite(freshNews);
     }
 
     console.log(
