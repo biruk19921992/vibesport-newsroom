@@ -27,6 +27,10 @@ let newsCache = [];
 let newsCacheUpdatedAt = null;
 let newsCacheRefreshing = false;
 
+// Safe auto-publishing state. The first successful feed refresh is baseline-only.
+let autoPublishBaselineEstablished = false;
+const autoPublishedLinks = new Set();
+
 
 let activeImageLookups = 0;
 const imageLookupQueue = [];
@@ -82,11 +86,16 @@ async function publishNewsToWebsite(items) {
 
   if (!endpoint || !secret) {
     console.log("Website publishing skipped: webhook environment variables are missing.");
-    return;
+    return false;
   }
 
+  let allSucceeded = true;
+
   for (const item of items) {
-    if (!item.title || !item.link || !/^https?:\/\//i.test(item.link)) continue;
+    if (!item.title || !item.link || !/^https?:\/\//i.test(item.link)) {
+      allSucceeded = false;
+      continue;
+    }
 
     const externalId = require("crypto")
       .createHash("sha256")
@@ -116,14 +125,20 @@ async function publishNewsToWebsite(items) {
         console.error(
           `Website publish failed (${response.status}) for: ${item.title}. Response: ${errorDetails}`
         );
+        allSucceeded = false;
       } else {
         const result = await response.json().catch(() => ({}));
-        console.log(`Website publish ${result.created ? "created" : result.updated ? "updated" : "accepted"}: ${item.title}`);
+        console.log(
+          `Website publish ${result.created ? "created" : result.updated ? "updated" : "accepted"}: ${item.title}`
+        );
       }
     } catch (error) {
       console.error("Website publish request failed:", error.message);
+      allSucceeded = false;
     }
   }
+
+  return allSucceeded;
 }
 
 async function refreshNewsCache() {
@@ -167,14 +182,82 @@ async function refreshNewsCache() {
       })
     );
 
-    const freshNews = results.flatMap(result =>
-      result.status === "fulfilled" ? result.value : []
-    );
+    const successfulFeeds = results.filter(result => result.status === "fulfilled");
+    const freshNews = successfulFeeds.flatMap(result => result.value);
+
+    // Do not overwrite a working cache when every feed request fails.
+    if (successfulFeeds.length !== enabledSources.length) {
+      console.error(
+        `News refresh incomplete: ${successfulFeeds.length}/${enabledSources.length} RSS sources succeeded. Auto-publishing paused.`
+      );
+      return;
+    }
+
+    if (successfulFeeds.length === 0) {
+      console.error("News refresh failed: all enabled RSS sources failed.");
+      return;
+    }
 
     if (freshNews.length > 0 || newsCache.length === 0) {
       newsCache = freshNews;
       newsCacheUpdatedAt = new Date().toISOString();
-      // Publishing is disabled here: news must be translated and approved first.
+    }
+
+    const validNews = freshNews.filter(item =>
+      item.link && /^https?:\/\//i.test(item.link)
+    );
+
+    // First successful refresh only establishes the baseline. Nothing is published.
+    if (!autoPublishBaselineEstablished) {
+      for (const item of validNews) autoPublishedLinks.add(item.link.trim());
+      autoPublishBaselineEstablished = true;
+      console.log(
+        `Auto-publish baseline established with ${validNews.length} existing links; no articles published on startup.`
+      );
+    } else {
+      const candidates = validNews.filter(item => {
+        const link = item.link.trim();
+        if (autoPublishedLinks.has(link)) return false;
+
+        // Skip articles with a known publication date older than 36 hours.
+        if (item.publishedAt) {
+          const publishedTime = Date.parse(item.publishedAt);
+          if (Number.isFinite(publishedTime) &&
+              Date.now() - publishedTime > 36 * 60 * 60 * 1000) {
+            autoPublishedLinks.add(link);
+            console.log("Skipping older RSS article:", item.title);
+            return false;
+          }
+        }
+        return true;
+      }).slice(0, 4);
+
+      for (const item of candidates) {
+        try {
+          const translated = await translateNews(item.title, item.description);
+
+          if (!translated?.ok ||
+              !/[ሀ-ፚ]/.test(String(translated.titleAm || "")) ||
+              (item.description && !/[ሀ-ፚ]/.test(String(translated.descriptionAm || "")))) {
+            console.error("Auto-publish skipped: incomplete Amharic translation:", item.title);
+            continue;
+          }
+
+          const published = await publishNewsToWebsite([{
+            ...item,
+            title: translated.titleAm,
+            description: translated.descriptionAm
+          }]);
+
+          if (published) {
+            autoPublishedLinks.add(item.link.trim());
+          } else {
+            console.error("Auto-publish will retry next refresh:", item.title);
+          }
+        } catch (error) {
+          console.error("Auto-publish translation failed; will retry:", error.message);
+        }
+      }
     }
 
     console.log(
@@ -236,49 +319,51 @@ async function translateWithAddisAI(text) {
   return translated;
 }
 
-app.post("/api/news/translate", async (req, res) => {
-  const title = String(req.body?.title || "").trim();
-  const description = String(req.body?.description || "").trim();
 
-  if (!title) {
-    return res.status(400).json({ ok: false, error: "News title is required" });
-  }
+async function translateNews(title, description) {
+  title = String(title || "").trim();
+  description = String(description || "").trim();
+
+  if (!title) throw new Error("News title is required");
 
   const cacheKey = JSON.stringify([title, description]);
   const cached = translationCache.get(cacheKey);
 
   if (cached && cached.expiresAt > Date.now()) {
-    return res.json({ ...cached.result, cached: true });
+    return { ...cached.result, cached: true };
   }
-
   if (cached) translationCache.delete(cacheKey);
 
-  async function translateWithMyMemory(text) {
-    if (!text) return "";
+  const isAmharic = value => /[ሀ-ፚ]/.test(String(value || "").trim());
 
-    const params = new URLSearchParams({
-      q: text.slice(0, 4500),
-      langpair: "en|am"
+  const validate = (titleAm, descriptionAm, provider) => {
+    titleAm = String(titleAm || "").trim();
+    descriptionAm = String(descriptionAm || "").trim();
+
+    if (!isAmharic(titleAm)) {
+      throw new Error(provider + " did not return an Amharic title");
+    }
+    if (description && !isAmharic(descriptionAm)) {
+      throw new Error(provider + " did not return an Amharic description");
+    }
+
+    return {
+      ok: true,
+      provider,
+      titleAm,
+      descriptionAm
+    };
+  };
+
+  const save = result => {
+    translationCache.set(cacheKey, {
+      result,
+      expiresAt: Date.now() + 6 * 60 * 60 * 1000
     });
+    return result;
+  };
 
-    const response = await fetch(
-      "https://api.mymemory.translated.net/get?" + params.toString(),
-      { signal: AbortSignal.timeout(15000) }
-    );
-
-    if (!response.ok) {
-      throw new Error("MyMemory HTTP " + response.status);
-    }
-
-    const data = await response.json();
-    const translated = String(data.responseData?.translatedText || "").trim();
-
-    if (data.responseStatus !== 200 || !translated) {
-      throw new Error("MyMemory translation unavailable");
-    }
-
-    return translated;
-  }
+  const errors = [];
 
   try {
     if (!process.env.GEMINI_API_KEY) {
@@ -290,7 +375,8 @@ app.post("/api/news/translate", async (req, res) => {
 
     const prompt = `Translate this football news into clear, natural Amharic.
 Keep team and player names accurate. Do not add facts or opinions.
-Return JSON only with keys "titleAm" and "descriptionAm".
+Return valid JSON only with keys "titleAm" and "descriptionAm".
+Translate both fields. If the description is empty, return an empty descriptionAm.
 
 Title: ${title}
 Description: ${description}`;
@@ -300,77 +386,82 @@ Description: ${description}`;
       contents: prompt
     });
 
-    const text = result.text || "";
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+    const cleaned = String(result.text || "")
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/, "");
+
     const translated = JSON.parse(cleaned);
-
-    if (!translated.titleAm) {
-      throw new Error("Gemini returned an empty translation");
-    }
-
-    const resultData = {
-      ok: true,
-      provider: "Gemini",
-      titleAm: String(translated.titleAm),
-      descriptionAm: String(translated.descriptionAm || "")
-    };
-    translationCache.set(cacheKey, {
-      result: resultData,
-      expiresAt: Date.now() + 6 * 60 * 60 * 1000
-    });
-    return res.json(resultData);
-  } catch (geminiError) {
-    console.error("Gemini translation failed; trying Addis AI:", geminiError.message);
+    return save(validate(translated.titleAm, translated.descriptionAm, "Gemini"));
+  } catch (error) {
+    errors.push("Gemini: " + error.message);
+    console.error("Gemini translation failed:", error.message);
   }
 
   try {
     const titleAm = await translateWithAddisAI(title);
-    let descriptionAm = "";
-    if (description) {
-      try {
-        descriptionAm = await translateWithAddisAI(description);
-      } catch (error) {
-        console.error("Addis AI description translation failed:", error.message);
-      }
-    }
-
-    const resultData = {
-      ok: true,
-      provider: "Addis AI",
-      titleAm,
-      descriptionAm
-    };
-    translationCache.set(cacheKey, {
-      result: resultData,
-      expiresAt: Date.now() + 6 * 60 * 60 * 1000
-    });
-    return res.json(resultData);
-  } catch (addisError) {
-    console.error("Addis AI translation failed; trying MyMemory:", addisError.message);
+    const descriptionAm = description
+      ? await translateWithAddisAI(description)
+      : "";
+    return save(validate(titleAm, descriptionAm, "Addis AI"));
+  } catch (error) {
+    errors.push("Addis AI: " + error.message);
+    console.error("Addis AI translation failed:", error.message);
   }
-try {
-    const titleAm = await translateWithMyMemory(title);
-    let descriptionAm = "";
 
-    if (description) {
-      try {
-        descriptionAm = await translateWithMyMemory(description);
-      } catch (error) {
-        console.error("MyMemory description translation failed:", error.message);
+  try {
+    async function translateWithMyMemory(text) {
+      if (!text) return "";
+
+      const params = new URLSearchParams({
+        q: text.slice(0, 4500),
+        langpair: "en|am"
+      });
+
+      const response = await fetch(
+        "https://api.mymemory.translated.net/get?" + params.toString(),
+        { signal: AbortSignal.timeout(15000) }
+      );
+
+      if (!response.ok) {
+        throw new Error("MyMemory HTTP " + response.status);
       }
+
+      const data = await response.json();
+      const translated = String(data.responseData?.translatedText || "").trim();
+
+      if (data.responseStatus !== 200 || !translated) {
+        throw new Error("MyMemory translation unavailable");
+      }
+
+      return translated;
     }
 
-    const resultData = {
-      ok: true,
-      provider: "MyMemory",
-      titleAm,
-      descriptionAm
-    };
-    translationCache.set(cacheKey, {
-      result: resultData,
-      expiresAt: Date.now() + 6 * 60 * 60 * 1000
+    const titleAm = await translateWithMyMemory(title);
+    const descriptionAm = description
+      ? await translateWithMyMemory(description)
+      : "";
+    return save(validate(titleAm, descriptionAm, "MyMemory"));
+  } catch (error) {
+    errors.push("MyMemory: " + error.message);
+    console.error("MyMemory translation failed:", error.message);
+  }
+
+  throw new Error("Translation failed: " + errors.join("; "));
+}
+
+app.post("/api/news/translate", async (req, res) => {
+  const title = String(req.body?.title || "").trim();
+  const description = String(req.body?.description || "").trim();
+
+  if (!title) {
+    return res.status(400).json({
+      ok: false,
+      error: "News title is required"
     });
-    return res.json(resultData);
+  }
+
+  try {
+    return res.json(await translateNews(title, description));
   } catch (error) {
     console.error("All translation providers failed:", error.message);
     return res.status(503).json({
@@ -379,7 +470,6 @@ try {
     });
   }
 });
-
 
 function requireNewsroomAdmin(req, res, next) {
   const expected = process.env.NEWSROOM_ADMIN_TOKEN;
