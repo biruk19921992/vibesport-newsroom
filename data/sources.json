@@ -16,5 +16,11 @@
     "url": "https://soccer.et/feed/",
     "category": "ethiopian",
     "enabled": true
+  },
+  {
+    "name": "Ethiopians Sport",
+    "url": "https://ethiopianssport.com/feed/",
+    "category": "ethiopian",
+    "enabled": true
   }
 ]
