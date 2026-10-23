@@ -1,0 +1,20 @@
+[
+  {
+    "name": "BBC Sport Football",
+    "url": "https://feeds.bbci.co.uk/sport/football/rss.xml",
+    "category": "international",
+    "enabled": true
+  },
+  {
+    "name": "ESPN Soccer",
+    "url": "https://www.espn.com/espn/rss/soccer/news",
+    "category": "international",
+    "enabled": true
+  },
+  {
+    "name": "Soccer Ethiopia",
+    "url": "https://soccer.et/feed/",
+    "category": "ethiopian",
+    "enabled": true
+  }
+]

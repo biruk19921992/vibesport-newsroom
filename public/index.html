@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="am">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VibeSport AI Newsroom</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background:#080d12; color:#eef4f7; font-family:system-ui,sans-serif; }
+    .panel { background:#111a22; border:1px solid #24333d; border-radius:16px; }
+    .muted { color:#9aabb7; }
+    .accent { color:#53e09b; }
+    .btn { background:#39ce87; color:#06130c; border-radius:10px; padding:10px 14px; font-weight:700; }
+  </style>
+</head>
+<body>
+  <header class="border-b border-slate-800 px-5 py-4">
+    <div class="max-w-6xl mx-auto flex items-center justify-between gap-4">
+      <div>
+        <div class="text-xl font-black"><span class="accent">VibeSport</span> AI Newsroom</div>
+        <div class="muted text-sm">የእግር ኳስ ዜና ማሰባሰቢያና ማዘጋጃ</div>
+      </div>
+      <span class="text-xs border border-emerald-800 text-emerald-300 rounded-full px-3 py-1">PRIVATE DASHBOARD</span>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto p-5 space-y-6">
+    <section>
+      <h1 class="text-2xl font-bold mb-2">የዜና ማዕከል</h1>
+      <p class="muted">ዜናን ሰብስብ፣ ተርጉም፣ አስተካክል እና ከፈቀድክ በኋላ አትም።</p>
+    </section>
+
+    <section class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="panel p-4"><div class="muted text-sm">የተሰበሰቡ ዜናዎች</div><div id="collected" class="text-3xl font-bold mt-2">0</div></div>
+      <div class="panel p-4"><div class="muted text-sm">የተተረጎሙ</div><div id="translated" class="text-3xl font-bold mt-2">0</div></div>
+      <div class="panel p-4"><div class="muted text-sm">ለማጽደቅ የሚጠብቁ</div><div id="pending" class="text-3xl font-bold mt-2">0</div></div>
+      <div class="panel p-4"><div class="muted text-sm">የታተሙ</div><div id="published" class="text-3xl font-bold mt-2">0</div></div>
+    </section>
+
+    <section class="grid md:grid-cols-3 gap-4">
+      <div class="panel p-5 md:col-span-2">
+        <h2 class="font-bold text-lg mb-3">የዜና ስራ ሂደት</h2>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div class="border border-slate-700 rounded-xl p-4"><div class="accent font-bold">01 · ሰብስብ</div><p class="muted text-sm mt-2">ከመረጥካቸው የዜና ምንጮች ይዘት ማሰባሰብ።</p></div>
+          <div class="border border-slate-700 rounded-xl p-4"><div class="accent font-bold">02 · ተርጉም</div><p class="muted text-sm mt-2">ዜናውን በአማርኛ ማዘጋጀት።</p></div>
+          <div class="border border-slate-700 rounded-xl p-4"><div class="accent font-bold">03 · አረጋግጥ</div><p class="muted text-sm mt-2">ርዕስ፣ ምንጭ፣ ምስል እና የተደጋገመ ዜና መፈተሽ።</p></div>
+          <div class="border border-slate-700 rounded-xl p-4"><div class="accent font-bold">04 · አትም</div><p class="muted text-sm mt-2">ከአርታዒ ፈቃድ በኋላ ወደ VibeSport መላክ።</p></div>
+        </div>
+      </div>
+
+      <div class="panel p-5">
+        <h2 class="font-bold text-lg mb-3">የስርዓት ሁኔታ</h2>
+        <div class="flex justify-between py-3 border-b border-slate-800"><span class="muted">Backend</span><span id="serverStatus">በመፈተሽ ላይ...</span></div>
+        <div class="flex justify-between py-3 border-b border-slate-800"><span class="muted">AI ትርጉም</span><span class="text-amber-300">ገና አልተያያዘም</span></div>
+        <div class="flex justify-between py-3"><span class="muted">ራስ-ሰር ማተሚያ</span><span class="text-amber-300">ገና አልተያያዘም</span></div>
+        <button class="btn w-full mt-3" onclick="checkServer()">ስርዓቱን ፈትሽ</button>
+      </div>
+    </section>
+
+    <section class="panel p-5">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <h2 class="font-bold text-lg">📰 የቅርብ ጊዜ የእግር ኳስ ዜናዎች</h2>
+        <button class="btn" onclick="loadNews()">አድስ</button>
+      </div>
+      <div id="newsMessage" class="muted text-sm mb-3">ዜናዎች እየተጫኑ ነው...</div>
+      <div id="newsList" class="space-y-3"></div>
+    </section>
+
+    <section class="panel p-5">
+      <h2 class="font-bold text-lg mb-2">የዜና ምንጮች</h2>
+      <p class="muted text-sm">ቀጣይ ደረጃ፦ የምንጮች ዝርዝር፣ RSS ማሰባሰብ፣ የአማርኛ ትርጉም እና የአርታዒ ማጽደቂያ። እነዚህ ባህሪያት ገና አልተገነቡም።</p>
+      <div id="healthMessage" class="muted text-sm mt-3">የBackend ግንኙነት እየተፈተሸ ነው...</div>
+    </section>
+  </main>
+
+  <script>
+    async function checkServer() {
+      const status = document.getElementById("serverStatus");
+      const message = document.getElementById("healthMessage");
+      try {
+        const response = await fetch("/api/health");
+        const data = await response.json();
+        status.textContent = response.ok && data.ok ? "Online" : "Error";
+        status.className = response.ok && data.ok ? "text-emerald-300" : "text-red-400";
+        message.textContent = data.message || "Backend response received.";
+      } catch (error) {
+        status.textContent = "Offline";
+        status.className = "text-red-400";
+        message.textContent = "Backend ጋር መገናኘት አልተቻለም።";
+      }
+    }
+    async function loadNews() {
+      const list = document.getElementById("newsList");
+      const message = document.getElementById("newsMessage");
+      message.textContent = "ዜናዎች እየተጫኑ ነው...";
+      list.replaceChildren();
+
+      try {
+        const response = await fetch("/api/news");
+        const data = await response.json();
+
+        if (!response.ok || !data.ok) {
+          throw new Error("ዜናዎችን ማምጣት አልተቻለም");
+        }
+
+        message.textContent = "የተገኙ ዜናዎች: " + data.count;
+
+        if (!data.news || data.news.length === 0) {
+          message.textContent = "አሁን የሚታዩ ዜናዎች የሉም።";
+          return;
+        }
+
+        let amharicTranslationQueue = Promise.resolve();
+
+        data.news.forEach(item => {
+          const card = document.createElement("article");
+          card.className = "rounded-xl border border-white/10 p-4";
+
+          const imageBox = document.createElement("div");
+          imageBox.className = "w-full rounded-lg mb-3 flex flex-col items-center justify-center bg-gradient-to-br from-green-950 to-slate-900 text-white";
+          imageBox.style.height = "180px";
+          imageBox.innerHTML = '<span style="font-size:52px">⚽</span><span style="font-weight:600;margin-top:8px">VibeSport</span><span style="font-size:12px;opacity:.75">Football News</span>';
+          const showFallback = () => { imageBox.replaceChildren(); imageBox.innerHTML = '<span style="font-size:52px">⚽</span><span style="font-weight:600;margin-top:8px">VibeSport</span><span style="font-size:12px;opacity:.75">Football News</span>'; };
+          if (item.imageUrl && /^https?:\/\//i.test(item.imageUrl)) {
+            const image = document.createElement("img");
+            image.src = item.imageUrl;
+            image.alt = item.title || "የእግር ኳስ ዜና";
+            image.loading = "lazy";
+            image.referrerPolicy = "no-referrer";
+            image.className = "w-full rounded-lg mb-3 object-cover";
+            image.style.maxHeight = "240px";
+            image.onerror = () => image.replaceWith(imageBox);
+            card.append(image);
+          } else {
+            card.append(imageBox);
+          }
+
+          const title = document.createElement("h3");
+          title.className = "font-semibold mb-2";
+          title.textContent = item.title || "ርዕስ የለም";
+
+          const source = document.createElement("p");
+          source.className = "muted text-xs mb-3";
+          source.textContent = (item.source || "ምንጭ አልታወቀም") +
+            (item.publishedAt ? " • " + item.publishedAt : "");
+
+          const autoDescription = document.createElement("p");
+          autoDescription.className = "text-sm mb-3";
+          autoDescription.hidden = true;
+
+          card.append(title, source, autoDescription);
+
+          if (item.category === "ethiopian") {
+            title.textContent = "ዜናው ወደ አማርኛ እየተተረጎመ ነው...";
+
+            amharicTranslationQueue = amharicTranslationQueue.then(async () => {
+              try {
+                const result = await fetch("/api/news/translate", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    title: item.title || "",
+                    description: item.description || item.contentSnippet || ""
+                  })
+                });
+
+                const translated = await result.json();
+
+                if (!result.ok || !translated.ok || !translated.titleAm) {
+                  throw new Error("Translation failed");
+                }
+
+                title.textContent = translated.titleAm;
+                autoDescription.textContent = translated.descriptionAm || "";
+                autoDescription.hidden = !translated.descriptionAm;
+              } catch (error) {
+                title.textContent = item.title || "ርዕስ የለም";
+                autoDescription.hidden = true;
+                console.error("የአማርኛ ትርጉም አልተሳካም:", error.message);
+              }
+            });
+          }
+
+          const translateButton = document.createElement("button");
+          translateButton.className = "btn mt-3";
+          translateButton.textContent = "ወደ አማርኛ ተርጉም";
+
+          const translation = document.createElement("div");
+          translation.className = "mt-3 space-y-2";
+          translation.hidden = true;
+
+          translateButton.addEventListener("click", async () => {
+            translateButton.disabled = true;
+            translateButton.textContent = "እየተተረጎመ ነው...";
+
+            try {
+              const result = await fetch("/api/news/translate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  title: item.title || "",
+                  description: item.description || item.contentSnippet || ""
+                })
+              });
+
+              const translated = await result.json();
+
+              if (!result.ok || !translated.ok) {
+                throw new Error(translated.error || "ትርጉሙ አልተሳካም");
+              }
+
+              translation.replaceChildren();
+
+              const titleAm = document.createElement("h4");
+              titleAm.className = "font-semibold text-emerald-300";
+              titleAm.textContent = translated.titleAm;
+
+              const descriptionAm = document.createElement("p");
+              descriptionAm.className = "text-sm";
+              descriptionAm.textContent = translated.descriptionAm;
+
+              translation.append(titleAm, descriptionAm);
+              translation.hidden = false;
+              translateButton.textContent = "ትርጉሙን አሳይ";
+            } catch (error) {
+              translation.textContent = "ትርጉሙ አልተሳካም። እንደገና ሞክር።";
+              translation.hidden = false;
+              translateButton.textContent = "እንደገና ተርጉም";
+            } finally {
+              translateButton.disabled = false;
+            }
+          });
+
+          card.append(translateButton, translation);
+
+          if (item.link) {
+            const link = document.createElement("a");
+            link.href = item.link;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            link.className = "text-emerald-300 underline text-sm";
+            link.textContent = "ሙሉ ዜናውን አንብብ ↗";
+            card.append(link);
+          }
+
+          list.append(card);
+        });
+      } catch (error) {
+        message.textContent = "ዜናዎችን ማምጣት አልተቻለም። እባክህ እንደገና ሞክር።";
+      }
+    }
+
+    checkServer();
+    loadNews();
+
+    // Automatically refresh news every 60 minutes
+    setInterval(loadNews, 60 * 60 * 1000);
+  </script>
+</body>
+</html>
