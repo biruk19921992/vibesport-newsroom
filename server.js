@@ -137,9 +137,7 @@ async function refreshNewsCache() {
 }
 
 app.get("/api/news", async (req, res) => {
-  if (!newsCacheUpdatedAt) {
-    await refreshNewsCache();
-  }
+  await refreshNewsCache();
 
   res.json({
     ok: true,
